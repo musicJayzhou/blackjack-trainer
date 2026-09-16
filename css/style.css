@@ -87,6 +87,9 @@ body:has(.modal:not(.hidden)) { overflow: hidden; }
 .card.back { background: repeating-linear-gradient(45deg, #35548f, #35548f 6px, #2a4272 6px, #2a4272 12px);
   display: flex; align-items: center; justify-content: center; }
 .card.back .card-inner { color: rgba(255,255,255,.75); font-size: 28px; }
+/* 新牌入场（发牌/要牌/庄家补牌时增量播放，已渲染过的牌不重播） */
+.card.new { animation: deal-in .3s ease-out both; }
+@keyframes deal-in { from { transform: translateY(-22px) rotate(-4deg) scale(.85); opacity: 0; } }
 
 /* ---------- 座位 ---------- */
 .seat { background: rgba(0,0,0,.22); border: 2px solid transparent; border-radius: 12px;
@@ -98,6 +101,9 @@ body:has(.modal:not(.hidden)) { overflow: hidden; }
 .hands { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
 .hand { padding: 4px 6px; border-radius: 8px; border: 1px dashed transparent; }
 .hand.playing { border-color: rgba(255,255,255,.45); background: rgba(255,255,255,.06); }
+/* 已停牌的手：牌面压暗 + 点数打勾，一眼区分"还在打的手" */
+.hand.stood .cards { opacity: .72; }
+.hand.stood .total::after { content: ' ✓'; color: var(--green); font-weight: 700; }
 .total { color: #fff; font-size: 13px; text-align: center; margin-top: 2px; }
 .total.busted { color: #ff9d9d; }
 .hand-bet { color: #ffe9a8; font-size: 12px; text-align: center; }
@@ -135,7 +141,10 @@ button.btn-ghost, .btn-close { background: var(--panel2); color: var(--text); bo
 
 /* ---------- 纠错提示 ---------- */
 .verdict { margin-top: 12px; background: #3a2530; border: 1px solid #7a4560; border-radius: 12px;
-  padding: 14px 18px; font-size: 14px; }
+  padding: 14px 44px 14px 18px; font-size: 14px; position: relative; }
+.verdict-close { position: absolute; top: 4px; right: 4px; background: none; border: none;
+  color: var(--muted); font-size: 17px; min-width: 36px; min-height: 36px; border-radius: 8px; }
+.verdict-close:active { color: var(--text); }
 .verdict .ev-compare { color: var(--muted); font-size: 12.5px; margin-top: 6px; }
 .verdict .why { color: #f0d9c9; margin-top: 6px; }
 

@@ -14,6 +14,9 @@ const App = {
   strictMode: true,              // 决策后立即纠错
   currentReview: null,
   ui: {},                        // DOM 引用
+  _seen: {},                     // 各手/庄家已显示的牌数（新牌入场动画用）
+  _logSeen: 0,                   // 引擎日志已镜像到牌桌日志的位置
+  _dealerRunning: false,         // 庄家分步动画进行中
 };
 
 /* ---------- 工具 ---------- */
@@ -37,10 +40,11 @@ function evNow() {
 }
 
 /* ---------- 卡牌渲染 ---------- */
-function cardHTML(card, faceDown = false) {
-  if (faceDown) return `<div class="card back"><div class="card-inner">?</div></div>`;
+function cardHTML(card, faceDown = false, isNew = false) {
+  const n = isNew ? ' new' : '';
+  if (faceDown) return `<div class="card back${n}"><div class="card-inner">?</div></div>`;
   const red = card.suit === '♥' || card.suit === '♦';
-  return `<div class="card ${red ? 'red' : ''}"><div class="corner">${card.rank}<br>${card.suit}</div><div class="pip">${card.suit}</div></div>`;
+  return `<div class="card ${red ? 'red' : ''}${n}"><div class="corner">${card.rank}<br>${card.suit}</div><div class="pip">${card.suit}</div></div>`;
 }
 
 /* ---------- 初始化模式 ---------- */
@@ -55,6 +59,7 @@ function startMode(mode) {
     for (let i = 1; i <= n; i++) App.players.push(new HumanPlayer(`玩家${i}`, 1000));
   }
   App.game = new Game(App.rules);
+  App.game.uiStepDealer = true;   // 庄家分步行动（翻暗牌→逐张补牌→结算），Node 自检走同步路径
   for (const p of App.players) App.game.addPlayer(p);
   Coach.reset();
   $('setup-screen').classList.add('hidden');
@@ -149,13 +154,16 @@ function renderAll() {
   $('round-info').textContent = `第 ${g.roundNumber} 局 · 牌靴剩余 ${g.shoe.remaining} 张（${g.shoe.numDecks} 副）`;
   if (g.phase === 'betting') { renderBetting(); return; }
 
-  /* 庄家 */
+  /* 庄家（新牌增量播放入场动画：仅比上次渲染多出来的牌加 .new） */
   const showHole = g.phase === 'dealer' || g.phase === 'settle' || g.phase === 'round_over' || !g.dealer.hole;
+  const dTotal = g.dealer.cards.length + (g.dealer.hole ? 1 : 0);
+  const dSeen = Math.min(App._seen.dealer || 0, dTotal);
   let dh = `<div class="dealer-label">庄家 ${g.dealer.cards.length || (g.dealer.hole ? 1 : 0) ? '' : ''}</div><div class="cards">`;
-  dh += cardHTML(g.dealer.cards[0] || { rank: '?', suit: '?' });
-  if (g.dealer.hole && !showHole) dh += cardHTML(null, true);
-  for (let i = 1; i < g.dealer.cards.length; i++) dh += cardHTML(g.dealer.cards[i]);
+  dh += cardHTML(g.dealer.cards[0] || { rank: '?', suit: '?' }, false, 0 >= dSeen);
+  if (g.dealer.hole && !showHole) dh += cardHTML(null, true, 1 >= dSeen);
+  for (let i = 1; i < g.dealer.cards.length; i++) dh += cardHTML(g.dealer.cards[i], false, i >= dSeen);
   dh += `</div>`;
+  App._seen.dealer = dTotal;
   if (g.dealer.cards.length >= (g.dealer.hole ? 1 : 2))
     dh += `<div class="total">${g.dealer.hole ? '?' : dealerTotalText()}</div>`;
   $('dealer-area').innerHTML = dh;
@@ -165,6 +173,9 @@ function renderAll() {
   /* 座位区无可点按钮（交互全部在行动栏），无需绑定 */
   renderActionBar();
   updateHintPanel();
+  flushLog();
+  /* 进入庄家阶段：启动分步序列（翻暗牌 → 逐张补牌 → 结算） */
+  if (g.phase === 'dealer' && !App._dealerRunning) startDealerSequence();
 }
 function dealerTotalText() {
   let t = 0, aces = 0;
@@ -176,10 +187,13 @@ function dealerTotalText() {
 function seatHTML(seat, idx) {
   const isTurn = App.game.currentSeat === seat;
   const hands = seat.hands.map((h, hi) => {
-    const cards = h.cards.map(c => cardHTML(c)).join('');
+    const key = `s${idx}-h${hi}`;
+    const seen = Math.min(App._seen[key] || 0, h.cards.length);   // 牌数减少（分牌）时以当前为准
+    const cards = h.cards.map((c, ci) => cardHTML(c, false, ci >= seen)).join('');
+    App._seen[key] = h.cards.length;
     const total = h.cards.length ? `<div class="total ${h.isBust ? 'busted' : ''}">${h.total}${h.isSoft ? '软' : ''}${h.isBlackjack ? ' ★BJ' : ''}${h.isBust ? ' 爆牌' : ''}</div>` : '';
     const res = h.result ? `<span class="result-badge ${h.result}">${resultName(h.result)} ${h.payout !== 0 ? fmt(h.payout) : ''}</span>` : '';
-    return `<div class="hand ${App.game.currentSeat === seat && App.game.seats.indexOf(seat) === idx && App.game.currentHand === h ? 'playing' : ''}">
+    return `<div class="hand ${App.game.currentSeat === seat && App.game.seats.indexOf(seat) === idx && App.game.currentHand === h ? 'playing' : ''}${h.stood ? ' stood' : ''}">
       <div class="cards">${cards}</div>${total}
       <div class="hand-bet">${chipFmt(h.bet)}${h.doubled ? ' ×2' : ''}${h.surrendered ? ' 已投降' : ''} ${res}</div>
     </div>`;
@@ -221,7 +235,9 @@ function renderActionBar() {
       <button data-next2>直接开下一局</button>`;
     bar.querySelector('[data-next]').onclick = openReview;
     bar.querySelector('[data-next2]').onclick = nextRound;
-  } else if (g.phase === 'settle' || g.phase === 'dealer') {
+  } else if (g.phase === 'dealer') {
+    bar.innerHTML = `<div class="turn-banner">🎲 庄家行动中…</div>`;
+  } else if (g.phase === 'settle') {
     bar.innerHTML = `<div class="turn-banner">结算中…</div>`;
   } else bar.innerHTML = '';
   /* 移动端：实测行动栏高度，供纠错浮层贴靠定位 */
@@ -328,7 +344,7 @@ function showVerdict(evalRes, action) {
   const evs = evalRes.entry.ev;
   let evLine = '';
   if (evs) {
-    evLine = Object.entries(evs.opts).map(([k, v]) =>
+    evLine = '📈 各动作长期期望（正 = 长期赚，负 = 长期亏）：' + Object.entries(evs.opts).map(([k, v]) =>
       `${({ hit: '要牌', stand: '停牌', double: '加倍', split: '分牌', surrender: '投降' })[k]} ${fmt(v * 100)}%`).join('　|　');
   }
   $('verdict-box').classList.remove('hidden');
@@ -352,9 +368,6 @@ function npcAct(seat) {
     const fallback = { D: 'hit', DS: 'stand', R: 'hit' }[rec.act] || 'stand';
     g.act(fallback);
   }
-  if (App.coachOn && Math.random() < 0.5) {
-    logMsg(`💡 ${seat.player.name}（NPC）：${hand.cards.map(c => c.rank).join(',')} vs 庄${up} → ${ACT_NAMES[rec.act]}`);
-  }
   renderAll();
   npcFlow();
 }
@@ -365,6 +378,35 @@ function npcFlow() {
   }
 }
 
+/* ---------- 庄家分步行动：还原真实桌面节奏 ----------
+   引擎在 uiStepDealer 模式下停在 dealer 阶段，由这里用 setTimeout 链驱动：
+   翻暗牌 → 每张补牌间隔约 0.75s → 结算。不用 async/await 是为了与
+   ui-smoke-test 的同步 timer 桩兼容。 */
+function startDealerSequence() {
+  const g = App.game;
+  if (!g || g.phase !== 'dealer' || App._dealerRunning) return;
+  App._dealerRunning = true;
+  setTimeout(() => {
+    if (App.game !== g) { App._dealerRunning = false; return; }   // 中途退出对局
+    g._dealerBegin();
+    App._seen.dealer = Math.max(0, (App._seen.dealer || 0) - 1);  // 翻开的暗牌播放入场动画
+    renderAll();
+    dealerHitLoop(g);
+  }, 650);
+}
+function dealerHitLoop(g) {
+  setTimeout(() => {
+    if (App.game !== g) { App._dealerRunning = false; return; }
+    if (g._dealerNext()) { renderAll(); dealerHitLoop(g); }
+    else setTimeout(() => {
+      if (App.game !== g) { App._dealerRunning = false; return; }
+      g._dealerFinish();
+      App._dealerRunning = false;
+      renderAll();
+    }, 550);
+  }, 750);
+}
+
 /* ---------- 提示面板（右栏教练） ---------- */
 function updateHintPanel() {
   const g = App.game;
@@ -372,8 +414,8 @@ function updateHintPanel() {
   if (!App.coachOn) { panel.innerHTML = '<div class="coach-off">教练提示已关闭（设置中开启）</div>'; return; }
   if (!g || g.phase === 'betting') {
     panel.innerHTML = `<h3>📊 下注阶段指导</h3>
-      <p>庄家优势约 0.4%（当前规则组合）。资金管理原则：<b>单手投入 ≤ 总资金的 1%-5%</b>。</p>
-      <p>负期望游戏中没有"最优注额"，下注目标只是控制波动、延长学习时间。下一手的输赢与上一手无关（独立事件），不要因连输而加注追损（Martingale 的数学缺陷：资金需求指数增长，迟早撞上限额或破产）。</p>`;
+      <p>长期平均每下 100 元，会输给庄家约 0.4 元（当前规则）——21 点是庄家略占优的游戏，练的就是把损失压到最小。原则：<b>一手投入不超过总资金的 1%-5%</b>，用小注把每个决策数清楚。</p>
+      <p>每一手的输赢和上一手<b>无关</b>：连输 5 手不代表下一手更可能赢，也别加倍追损（越追翻本所需越多，迟早破产）。</p>`;
     return;
   }
   if (g.phase === 'insurance') {
@@ -421,7 +463,7 @@ function updateHintPanel() {
           <div class="ev-track"><div class="ev-fill ${v >= 0 ? 'pos' : 'neg'}" style="width:${Math.min(50, Math.abs(v) * 45)}%"></div></div>
           <span class="ev-val">${fmt(v * 100)}%</span>
         </div>`).join('')}</div>
-        <div class="ev-note">EV = 每单位本金的长期期望净收益（基于牌靴剩余 ${App.game.shoe.remaining} 张动态计算）。策略表最优：<b>${nameMap[shown] || recEv}（${fmt((an.opts[shown] ?? an.bestEV) * 100)}%）</b>${recAvail ? '' : '（当前不可执行，按回退规则处理）'}${diffNote}</div>`;
+        <div class="ev-note">EV 是"平均每 1 元注金长期赚/亏多少"（绿条=赚、红条=亏，按牌靴剩余 ${App.game.shoe.remaining} 张动态估算）。策略表最优：<b>${nameMap[shown] || recEv}（${fmt((an.opts[shown] ?? an.bestEV) * 100)}%）</b>${recAvail ? '' : '（当前不可执行，按回退规则处理）'}${diffNote}</div>`;
     } catch (e) { /* EV 计算失败时静默降级 */ }
     panel.innerHTML = `<h3>🎯 当前建议</h3>
       <div class="hint-big">最优动作：<b>${ACT_NAMES[rec.act]}</b></div>
@@ -656,6 +698,13 @@ function logMsg(text) {
   box.insertAdjacentHTML('afterbegin', `<div>${text}</div>`);
   while (box.children.length > 60) box.lastChild.remove();
 }
+/* 引擎每步事件（发牌/要牌/分牌/庄家补牌/爆牌/结算…）实时镜像到牌桌日志 */
+function flushLog() {
+  const g = App.game;
+  if (!g) return;
+  if (App._logSeen > g.log.length) App._logSeen = 0;   // 新局日志已清空
+  for (; App._logSeen < g.log.length; App._logSeen++) logMsg(g.log[App._logSeen].text);
+}
 function toast(text) {
   const t = document.createElement('div');
   t.className = 'toast'; t.textContent = text;
@@ -671,6 +720,7 @@ document.addEventListener('DOMContentLoaded', () => {
   $('btn-settings').onclick = openSettings;
   $('btn-learn').onclick = openLearn;
   $('btn-stats').onclick = openStats;
+  $('verdict-close').onclick = () => $('verdict-box').classList.add('hidden');
   $('coach-toggle').onclick = () => {
     App.coachOn = !App.coachOn;
     $('coach-toggle').textContent = App.coachOn ? '教练：开' : '教练：关';

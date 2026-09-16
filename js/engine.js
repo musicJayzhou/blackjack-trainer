@@ -150,6 +150,7 @@ class Game {
     this.roundNumber = 0;
     this.history = [];        // 每局复盘记录
     this.log = [];            // 本局事件日志（复盘用）
+    this.uiStepDealer = false;   // true 时 phase 到 DEALER 即停，由 UI 分步驱动（Node 自检保持同步）
   }
 
   addPlayer(player) {
@@ -282,6 +283,7 @@ class Game {
     if (!needAct) {
       for (const s of pending) s.done = true;
       this.phase = PHASE.DEALER;
+      if (this.uiStepDealer) return;   // UI 分步驱动庄家节奏
       this._dealerPlay();
     }
   }
@@ -391,27 +393,39 @@ class Game {
     if (this.phase !== PHASE.PLAYER) return;
     if (!this.currentSeat) {
       this.phase = PHASE.DEALER;
+      if (this.uiStepDealer) return;   // UI 分步驱动庄家节奏
       this._dealerPlay();
     }
   }
 
-  /* ---------- 庄家行动 ---------- */
+  /* ---------- 庄家行动 ----------
+     同步路径：_dealerPlay 一次打完（Node 自检/测试）；
+     UI 分步：uiStepDealer 模式下由界面依次调用 _dealerBegin →
+     _dealerNext（每补一张）→ _dealerFinish，还原真实桌面的节奏 */
   _dealerPlay() {
+    this._dealerBegin();
+    while (this._dealerNext()) {}
+    this._dealerFinish();
+  }
+  _dealerBegin() {           // 翻暗牌
     this._revealHole();
     this.log.push({ type: 'reveal', text: `庄家翻开暗牌，共 ${this.dealerTotal} 点` });
+  }
+  _dealerNext() {            // 补一张牌；返回 false 表示庄家行动结束
     // 是否还有玩家手存活（未爆未投降）
     const alive = this.seats.some(s => s.hands.some(h =>
       h.bet > 0 && !h.isBust && !h.surrendered));
-    while (alive && this._dealerMustHit()) {
-      const c = this.shoe.deal();
-      this.dealer.cards.push(c);
-      this.log.push({ type: 'dealer-hit', card: c,
-        text: `庄家补牌 ${c.rank}${c.suit}（${this.dealerTotal} 点）` });
-      if (this.dealerTotal > 21) {
-        this.log.push({ type: 'dealer-bust', text: `庄家爆牌！${this.dealerTotal} 点` });
-        break;
-      }
+    if (!alive || !this._dealerMustHit()) return false;
+    const c = this.shoe.deal();
+    this.dealer.cards.push(c);
+    this.log.push({ type: 'dealer-hit', card: c,
+      text: `庄家补牌 ${c.rank}${c.suit}（${this.dealerTotal} 点）` });
+    if (this.dealerTotal > 21) {
+      this.log.push({ type: 'dealer-bust', text: `庄家爆牌！${this.dealerTotal} 点` });
     }
+    return true;
+  }
+  _dealerFinish() {          // 结算并收尾
     this.phase = PHASE.SETTLE;
     this._settle(false);
     this.phase = PHASE.ROUND_OVER;

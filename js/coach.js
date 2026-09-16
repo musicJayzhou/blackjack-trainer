@@ -28,17 +28,17 @@ const Coach = {
     };
   },
 
-  /* ---------- 与当前环节相关的规则小课 ---------- */
+  /* ---------- 与当前环节相关的规则小课（新手向：先说结论，再讲为什么） ---------- */
   contextLesson(hand, up) {
     const upName = (['10', 'J', 'Q', 'K'].includes(up) ? '10' : up);
     const lessons = [];
     const bust = DEALER_BUST[upName];
-    lessons.push(`庄家明牌 ${upName}：爆牌概率 ${bust}，最终成 17-21 的分布见概率表。` +
-      (['2','3','4','5','6'].includes(upName) ? '属于"弱牌"——你的停牌阈值可以放宽（12+ 即可站）。'
-       : '属于"强牌"——你需要更积极的补牌，16 以下基本都要搏。'));
-    if (hand.isSoft) lessons.push('你现在是软牌：A 可以按 1 或 11 计，要牌不会爆，这是软牌的天然保险。');
-    else if (hand.total >= 12 && hand.total <= 16) lessons.push(`你现在是僵手（12-16）：要牌爆率 ${PLAYER_BUST[Math.min(hand.total,20)]}，站牌还是搏一把取决于庄家明牌强弱。`);
-    if (hand.cards.length === 2 && hand.isPair) lessons.push('你拿到了对子：先查对子表（是否分牌），不分则按硬牌处理。');
+    lessons.push(['2','3','4','5','6'].includes(upName)
+      ? `庄家明牌是 ${upName}（小牌）：庄家最后爆掉的概率约 ${bust}，相当高。你不用急着凑大牌——拿够 12 点就可以停牌，等庄家自己爆。`
+      : `庄家明牌是 ${upName}（大牌）：庄家大概率能凑到 17 点以上（爆掉的概率只有 ${bust}）。干等没用，你 16 点以下基本都得继续要牌搏一把。`);
+    if (hand.isSoft) lessons.push('你这手是"软牌"（带一张算 11 的 A）：A 既能按 11 也能按 1 算，所以再要一张牌也不会爆——这是软牌自带的保险，放心要。');
+    else if (hand.total >= 12 && hand.total <= 16) lessons.push(`你这手 ${hand.total} 点落在"最难受的区间"（12-16）：再要一张牌，爆掉的概率约 ${PLAYER_BUST[Math.min(hand.total,20)]}。要不要搏，就看庄家明牌是小牌还是大牌——参考上面第一条。`);
+    if (hand.cards.length === 2 && hand.isPair) lessons.push('你拿到了对子：先决定"要不要拆成两手打"（参考下方推荐动作），不拆就当普通硬牌处理。');
     return lessons.join('\n');
   },
 
