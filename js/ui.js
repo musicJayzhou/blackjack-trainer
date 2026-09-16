@@ -439,20 +439,21 @@ function updateHintPanel() {
     const up = g.dealerUp.rank;
     const rec = basicStrategy(hand, up, App.rules);
     const why = explainDecision(hand, up, rec);
+    /* 策略表推荐的引擎动作；不可执行（如资金不足加倍）时按回退口径降级并标注 */
+    const recEv = ACT_MAP[rec.act] || rec.act;
+    const fallback = { double: 'hit', surrender: 'hit' }[recEv] || 'stand';
+    const avail = hand.availableActions;
+    const recOk = avail.includes(recEv);
     /* EV 量化分析 */
     let evBlock = '';
     try {
       const evc = evNow();
       const an = evc.analyze(hand, up);
       const nameMap = { hit: '要牌', stand: '停牌', double: '加倍', split: '分牌', surrender: '投降' };
-      const avail = hand.availableActions;   // 只展示可执行动作；推荐不可执行时标注
       const rows = Object.entries(an.opts).filter(([k]) => avail.includes(k)).sort((a, b) => b[1] - a[1]);
       /* 高亮与"最优"文案以策略表为准（与判定口径一致）；动态 EV 首选随牌靴组成波动，
          在边际格（EV 差 <0.5%）可能与策略表不同，属正常现象，注明即可 */
-      const recEv = ACT_MAP[rec.act] || rec.act;
-      const fallback = { double: 'hit', surrender: 'hit' }[recEv] || 'stand';
       const shown = rows.some(([k]) => k === recEv) ? recEv : (rows.some(([k]) => k === fallback) ? fallback : null);
-      const recAvail = avail.includes(recEv);
       const evTop = rows[0] && rows[0][0];
       const diffNote = (evTop && evTop !== shown && Math.abs((an.opts[evTop] || 0) - (an.opts[shown] ?? -1)) < 0.005)
         ? ` 当前牌靴动态 EV 首选「${nameMap[evTop]}」，与策略表差异属边际，教学判定以策略表为准。`
@@ -463,10 +464,10 @@ function updateHintPanel() {
           <div class="ev-track"><div class="ev-fill ${v >= 0 ? 'pos' : 'neg'}" style="width:${Math.min(50, Math.abs(v) * 45)}%"></div></div>
           <span class="ev-val">${fmt(v * 100)}%</span>
         </div>`).join('')}</div>
-        <div class="ev-note">EV 是"平均每 1 元注金长期赚/亏多少"（绿条=赚、红条=亏，按牌靴剩余 ${App.game.shoe.remaining} 张动态估算）。策略表最优：<b>${nameMap[shown] || recEv}（${fmt((an.opts[shown] ?? an.bestEV) * 100)}%）</b>${recAvail ? '' : '（当前不可执行，按回退规则处理）'}${diffNote}</div>`;
+        <div class="ev-note">EV 是"平均每 1 元注金长期赚/亏多少"（绿条=赚、红条=亏，按牌靴剩余 ${App.game.shoe.remaining} 张动态估算）。策略表最优：<b>${nameMap[shown] || recEv}（${fmt((an.opts[shown] ?? an.bestEV) * 100)}%）</b>${recOk ? '' : '（当前不可执行，按回退规则处理）'}${diffNote}</div>`;
     } catch (e) { /* EV 计算失败时静默降级 */ }
     panel.innerHTML = `<h3>🎯 当前建议</h3>
-      <div class="hint-big">最优动作：<b>${ACT_NAMES[rec.act]}</b></div>
+      <div class="hint-big">最优动作：<b>${recOk ? ACT_NAMES[rec.act] : ACT_NAMES[ACT_CODE[fallback] || fallback]}</b>${recOk ? '' : `（${ACT_NAMES[rec.act]}当前不可执行，按回退规则处理）`}</div>
       ${evBlock}
       <div class="why">${why}</div>
       <h3>📖 本环节相关规则</h3>

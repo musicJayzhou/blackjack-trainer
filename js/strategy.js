@@ -132,7 +132,8 @@ function basicStrategy(hand, upRank, rules = {}) {
   let act = t.hard[row][ui];
   if (n > 2 && act === 'D') act = 'H';
   if (n > 2 && act === 'DS') act = 'S';
-  if (act === 'R' && !R.lateSurrender) act = 'H';
+  /* 迟投降仅首两张可用：多张牌或规则关闭时回退要牌（与 D→H / DS→S 同口径） */
+  if (act === 'R' && (n > 2 || !R.lateSurrender)) act = 'H';
   return { act, table: 'hard', rowLabel: String(row) };
 }
 
