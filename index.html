@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#12181f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="format-detection" content="telephone=no">
+<meta name="description" content="21 点教学模拟器：最优策略提示、EV 分析、逐局复盘与完整学习中心">
+<title>21 点教室 · 边玩边学的 Blackjack 教学模拟器</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ============ 开始界面 ============ -->
+<div id="setup-screen" class="setup">
+  <div class="setup-card">
+    <h1>♠ 21 点教室 <span class="sub">Blackjack Trainer</span></h1>
+    <p class="intro">一个教你「按数学正确方式」打 21 点的模拟器：<br>
+      每个决策环节实时给出<b>最优策略 + 期望值（EV）分析</b>，局末<b>复盘</b>每个决策的对错，配套策略表、概率数据、术语与礼仪的<b>学习中心</b>。</p>
+    <div class="mode-select">
+      <button id="btn-solo" class="mode-card">
+        <span class="mode-icon">🎯</span>
+        <b>单人模式</b>
+        <span>你 + 2 位按基本策略行动的 NPC 牌友（可观察学习）</span>
+      </button>
+      <button id="btn-local" class="mode-card">
+        <span class="mode-icon">👥</span>
+        <b>本机多人</b>
+        <span>2-5 位玩家同一设备轮流操作
+          <select id="local-count" onclick="event.stopPropagation()">
+            <option value="2">2 人</option><option value="3">3 人</option>
+            <option value="4">4 人</option><option value="5">5 人</option>
+          </select>
+        </span>
+      </button>
+    </div>
+    <div class="setup-tips">
+      <div>💡 提示：开启教练后，右栏实时显示当前局面的最优动作与各动作 EV 对比。</div>
+      <div>📖 第一次玩？先去 <b>学习中心 → 规则速览</b> 花三分钟看流程。</div>
+      <div>⚖️ 默认规则：6 副 / S17 / BJ 赔 3:2 / DAS / 可投降（可在设置中改）。</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 游戏主界面 ============ -->
+<div id="game-screen" class="game hidden">
+  <header class="topbar">
+    <div class="left"><b>♠ 21 点教室</b> <span id="round-info"></span></div>
+    <div class="right">
+      <button id="coach-toggle" class="chip-btn on">教练：开</button>
+      <button id="strict-toggle" class="chip-btn on">纠错：开</button>
+      <button id="btn-stats" class="chip-btn">📊 统计</button>
+      <button id="btn-learn" class="chip-btn">📖 学习中心</button>
+      <button id="btn-settings" class="chip-btn">⚙ 规则设置</button>
+      <button id="btn-back" class="chip-btn">← 退出</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="table-col">
+      <div class="table-felt">
+        <div id="dealer-area" class="dealer-area"></div>
+        <div class="table-insignia">BLACKJACK PAYS 3 TO 2 · DEALER MUST STAND ON 17</div>
+        <div id="seats-area" class="seats-area"></div>
+      </div>
+      <div id="verdict-box" class="verdict hidden">
+        <div id="verdict-text"></div>
+      </div>
+      <div id="action-bar" class="action-bar"></div>
+    </section>
+
+    <aside class="side-col">
+      <div id="coach-panel" class="coach-panel"></div>
+      <div class="log-panel"><h3>🗒️ 牌桌日志</h3><div id="log-box"></div></div>
+    </aside>
+  </main>
+</div>
+
+<!-- ============ 复盘弹窗 ============ -->
+<div id="review-modal" class="modal hidden">
+  <div class="modal-box wide">
+    <div class="modal-head"><h2>🏁 本局复盘</h2><button class="close">✕</button></div>
+    <div id="review-body" class="modal-body"></div>
+    <div class="modal-foot">
+      <button id="review-close" class="btn-ghost">关闭</button>
+      <button id="review-next" class="primary">开下一局 →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 统计弹窗 ============ -->
+<div id="stats-modal" class="modal hidden">
+  <div class="modal-box wide">
+    <div class="modal-head"><h2>📊 学习统计</h2><button class="close">✕</button></div>
+    <div id="stats-body" class="modal-body"></div>
+    <div class="modal-foot"><button class="btn-close primary">关闭</button></div>
+  </div>
+</div>
+
+<!-- ============ 学习中心弹窗 ============ -->
+<div id="learn-modal" class="modal hidden">
+  <div class="modal-box wide">
+    <div class="modal-head"><h2>📖 学习中心</h2><button class="close">✕</button></div>
+    <div id="learn-tabs" class="learn-tabs"></div>
+    <div id="learn-body" class="modal-body learn-body"></div>
+    <div class="modal-foot"><button class="btn-close primary">关闭</button></div>
+  </div>
+</div>
+
+<!-- ============ 规则设置弹窗 ============ -->
+<div id="settings-modal" class="modal hidden">
+  <div class="modal-box">
+    <div class="modal-head"><h2>⚙ 规则设置</h2><button class="close">✕</button></div>
+    <div id="settings-body" class="modal-body"></div>
+    <div class="modal-foot"><button class="btn-close primary">保存并关闭</button></div>
+  </div>
+</div>
+
+<script src="js/engine.js"></script>
+<script src="js/strategy.js"></script>
+<script src="js/evcalc.js"></script>
+<script src="js/data.js"></script>
+<script src="js/coach.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>

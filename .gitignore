@@ -1,0 +1,7 @@
+# 本地成体系备份，不入库
+backup/
+
+# 系统杂项
+Thumbs.db
+desktop.ini
+.DS_Store
