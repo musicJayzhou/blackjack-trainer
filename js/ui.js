@@ -332,7 +332,7 @@ function showVerdict(evalRes, action) {
       `${({ hit: '要牌', stand: '停牌', double: '加倍', split: '分牌', surrender: '投降' })[k]} ${fmt(v * 100)}%`).join('　|　');
   }
   $('verdict-box').classList.remove('hidden');
-  $('verdict-text').innerHTML = `<b>${v}</b> — 你选了「${ACT_NAMES[action] || action}」，最优是「${recName}」。
+  $('verdict-text').innerHTML = `<b>${v}</b> — 你选了「${ACT_NAMES[evalRes.entry.actionCode] || action}」，最优是「${recName}」。
     ${evLine ? `<div class="ev-compare">${evLine}</div>` : ''}
     <div class="why">${evalRes.entry.why}</div>`;
 }
@@ -405,14 +405,23 @@ function updateHintPanel() {
       const nameMap = { hit: '要牌', stand: '停牌', double: '加倍', split: '分牌', surrender: '投降' };
       const avail = hand.availableActions;   // 只展示可执行动作；推荐不可执行时标注
       const rows = Object.entries(an.opts).filter(([k]) => avail.includes(k)).sort((a, b) => b[1] - a[1]);
-      const bestAvail = avail.includes(an.best);
+      /* 高亮与"最优"文案以策略表为准（与判定口径一致）；动态 EV 首选随牌靴组成波动，
+         在边际格（EV 差 <0.5%）可能与策略表不同，属正常现象，注明即可 */
+      const recEv = ACT_MAP[rec.act] || rec.act;
+      const fallback = { double: 'hit', surrender: 'hit' }[recEv] || 'stand';
+      const shown = rows.some(([k]) => k === recEv) ? recEv : (rows.some(([k]) => k === fallback) ? fallback : null);
+      const recAvail = avail.includes(recEv);
+      const evTop = rows[0] && rows[0][0];
+      const diffNote = (evTop && evTop !== shown && Math.abs((an.opts[evTop] || 0) - (an.opts[shown] ?? -1)) < 0.005)
+        ? ` 当前牌靴动态 EV 首选「${nameMap[evTop]}」，与策略表差异属边际，教学判定以策略表为准。`
+        : '';
       evBlock = `<div class="ev-bars">${rows.map(([k, v]) => `
-        <div class="ev-row ${k === (bestAvail ? an.best : rows[0][0]) ? 'best' : ''}">
+        <div class="ev-row ${k === shown ? 'best' : ''}">
           <span class="ev-name">${nameMap[k]}</span>
           <div class="ev-track"><div class="ev-fill ${v >= 0 ? 'pos' : 'neg'}" style="width:${Math.min(50, Math.abs(v) * 45)}%"></div></div>
           <span class="ev-val">${fmt(v * 100)}%</span>
         </div>`).join('')}</div>
-        <div class="ev-note">EV = 每单位本金的长期期望净收益（基于牌靴剩余 ${App.game.shoe.remaining} 张动态计算）。最优：<b>${nameMap[an.best]}（${fmt(an.bestEV * 100)}%）</b>${bestAvail ? '' : '（当前不可执行，按回退规则处理）'}</div>`;
+        <div class="ev-note">EV = 每单位本金的长期期望净收益（基于牌靴剩余 ${App.game.shoe.remaining} 张动态计算）。策略表最优：<b>${nameMap[shown] || recEv}（${fmt((an.opts[shown] ?? an.bestEV) * 100)}%）</b>${recAvail ? '' : '（当前不可执行，按回退规则处理）'}${diffNote}</div>`;
     } catch (e) { /* EV 计算失败时静默降级 */ }
     panel.innerHTML = `<h3>🎯 当前建议</h3>
       <div class="hint-big">最优动作：<b>${ACT_NAMES[rec.act]}</b></div>
@@ -437,7 +446,7 @@ function openReview() {
     <tr class="${d.verdict}">
       <td>${i + 1}</td><td>${d.seat || '-'}</td><td>${d.cardsBefore}</td>
       <td>${d.soft ? '软' : '硬'}${d.total}</td><td>庄 ${d.up}</td>
-      <td>${d.action}</td><td>${ACT_NAMES[d.recAct] || d.recAct}</td>
+      <td>${ACT_NAMES[d.actionCode] || d.action}</td><td>${ACT_NAMES[d.recAct] || d.recAct}</td>
       <td>${d.verdict === 'correct' ? '✓' : d.verdict === 'minor' ? '△' : '✗'}</td>
     </tr>`).join('');
   const seatSum = rv.seats.map(s => {
@@ -454,7 +463,7 @@ function openReview() {
     <table class="rv-table"><thead><tr><th>#</th><th>玩家</th><th>手牌</th><th>点数</th><th>庄家</th><th>你的选择</th><th>最优</th><th>判定</th></tr></thead>
     <tbody>${decisionRows || '<tr><td colspan="8">—</td></tr>'}</tbody></table>
     ${rv.decisions.filter(d => d.verdict !== 'correct').map(d => `
-      <div class="rv-explain"><b>${d.cardsBefore} vs 庄${d.up}</b>（你 ${d.action}，应 ${ACT_NAMES[d.recAct] || d.recAct}）：<br>${d.why}</div>`).join('')}
+      <div class="rv-explain"><b>${d.cardsBefore} vs 庄${d.up}</b>（你 ${ACT_NAMES[d.actionCode] || d.action}，应 ${ACT_NAMES[d.recAct] || d.recAct}）：<br>${d.why}</div>`).join('')}
     <h4>本局时间线</h4>
     <div class="rv-log">${rv.log.map(l => `<div>· ${l.text}</div>`).join('')}</div>`;
   showModal('review-modal');

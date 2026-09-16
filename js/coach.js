@@ -6,6 +6,9 @@
 /* ---------- 行动记录（复盘的基本单元） ---------- */
 /* { round, seat, handIdx, cardsBefore, total, soft, up, action, correct, recAct, why } */
 
+/* 引擎动作名 → 策略表动作代码（按钮/引擎用全名，策略表用单字母代码；判定与显示共用） */
+const ACT_CODE = { hit: 'H', stand: 'S', double: 'D', split: 'P', surrender: 'R' };
+
 const Coach = {
   records: [],        // 全部决策记录
   roundRecords: [],   // 当前局的决策记录
@@ -42,22 +45,25 @@ const Coach = {
   /* ---------- 行动评估（打完一手立即反馈） ---------- */
   evaluate(game, hand, up, action, rules) {
     const rec = basicStrategy(hand, up, rules);
+    /* 引擎/按钮传全名（'hit' 等），策略表返回代码（'H' 等）：先归一化再比较 */
+    const a = ACT_CODE[action] || action;
     let verdict;
     /* 与策略回退口径一致的宽容分级：
        D→H / DS→S：放弃加倍的利润（少赚），记 minor；
        R→H / R→S：放弃投降的止损（期望损失略增），记 minor；
+       DS 格选择加倍（主行动同族）记 correct；
        其余偏离记 wrong */
-    if (action === rec.act) verdict = 'correct';
-    else if (rec.act === 'DS' && action === 'S') verdict = 'minor';
-    else if (rec.act === 'D' && action === 'H') verdict = 'minor';
-    else if (rec.act === 'R' && (action === 'H' || action === 'S')) verdict = 'minor';
+    if (a === rec.act || (rec.act === 'DS' && a === 'D')) verdict = 'correct';
+    else if (rec.act === 'DS' && a === 'S') verdict = 'minor';
+    else if (rec.act === 'D' && a === 'H') verdict = 'minor';
+    else if (rec.act === 'R' && (a === 'H' || a === 'S')) verdict = 'minor';
     else verdict = 'wrong';
     const entry = {
       round: game.roundNumber,
       seat: null,   // 由调用方补充
       cardsBefore: hand.cards.map(c => c.rank).join(','),
       total: hand.total, soft: hand.isSoft, up,
-      action, recAct: rec.act, verdict,
+      action, actionCode: a, recAct: rec.act, verdict,
       why: explainDecision(hand, up, rec),
     };
     this.roundRecords.push(entry);
@@ -110,7 +116,7 @@ const Coach = {
     const wrongList = this.records.filter(r => r.verdict === 'wrong');
     const freq = {};
     for (const w of wrongList) {
-      const label = `${w.cardsBefore} vs 庄${w.up}：你${ACT_NAMES[w.action]?.split(' ')[0] || w.action}，应${ACT_NAMES[w.recAct]?.split(' ')[0] || w.recAct}`;
+      const label = `${w.cardsBefore} vs 庄${w.up}：你${ACT_NAMES[ACT_CODE[w.action] || w.action]?.split(' ')[0] || w.action}，应${ACT_NAMES[w.recAct]?.split(' ')[0] || w.recAct}`;
       freq[label] = (freq[label] || 0) + 1;
     }
     return { total, wrongs, minors, accuracy: total ? Math.round((total - wrongs - minors / 2) / total * 100) : null, byType, freq };
@@ -125,4 +131,4 @@ const Coach = {
   reset() { this.records = []; this.roundRecords = []; this.chipsCurve = []; },
 };
 
-if (typeof module !== 'undefined' && module.exports) module.exports = { Coach };
+if (typeof module !== 'undefined' && module.exports) module.exports = { Coach, ACT_CODE };
